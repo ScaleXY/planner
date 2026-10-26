@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "rebuild": "node scripts/rebuild-all.mjs",
     "test": "vitest run",
     "typecheck": "tsc -p ."
   },

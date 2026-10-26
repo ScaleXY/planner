@@ -1,5 +1,8 @@
 # 02 — Worker (`apps/worker`)
 
+> **Superseded by [06](06-index-generation.md):** the Worker no longer serves HTTP. It builds index pages
+> into the bucket from R2 events, and `plans.athul.dev` is the R2 custom domain again.
+
 The Worker sits in front of the existing R2 custom domain `plans.athul.dev`. It renders the index pages
 and forwards everything else to R2.
 

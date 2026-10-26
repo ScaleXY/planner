@@ -4,10 +4,21 @@
   "main": "src/index.ts",
   "account_id": "98f0ecdd86a00f1677266b31bd313769",
   "compatibility_date": "2026-10-25",
+  // No HTTP triggers: plans.athul.dev is the bucket's R2 custom domain. The Worker only consumes R2
+  // event notifications (rules in plans/06) and writes the index pages back into the bucket.
   "workers_dev": false,
   "preview_urls": false,
-  // Custom Domain: the Worker is the origin for plans.athul.dev and serves both the index pages and the
-  // plan files (from the PLANS binding).
-  "routes": [{ "pattern": "plans.athul.dev", "custom_domain": true }],
+  "queues": {
+    "consumers": [
+      {
+        "queue": "planner-r2-events",
+        "max_batch_size": 100,
+        "max_batch_timeout": 5,
+        // One batch at a time, so a slower rebuild can't overwrite a newer one with a stale listing.
+        "max_concurrency": 1,
+        "max_retries": 10
+      }
+    ]
+  },
   "r2_buckets": [{ "binding": "PLANS", "bucket_name": "plans" }]
 }

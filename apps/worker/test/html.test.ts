@@ -4,7 +4,7 @@ import { escapeHtml, renderPage, slugTitle } from "../src/html";
 describe("html", () => {
 	it("escapes markup", () => {
 		expect(escapeHtml(`<a href="x">'&'</a>`)).toBe("&#60;a href=&#34;x&#34;&#62;&#39;&#38;&#39;&#60;/a&#62;");
-		const html = renderPage("<t>", [{ label: "<c>", href: "/\"x" }], [{ label: "<i>", href: "/<i>" }], "");
+		const html = renderPage("<t>", [{ label: "<c>", href: "/\"x" }], [{ label: "<i>", href: "/<i>" }]);
 		expect(html).not.toMatch(/<(t|c|i)>/);
 	});
 

@@ -1,7 +1,7 @@
 # Planner — plans
 
-Monorepo with a Cloudflare Worker that serves HTML "plans" stored in R2, with directory listings, at
-**https://plans.athul.dev**, plus a `planner` CLI (`brew install scalexy/tap/planner`) that
+Monorepo for HTML "plans" stored in R2 and served at **https://plans.athul.dev** (R2 custom domain), with a
+Worker that generates the year/month/day index pages from R2 events, plus a `planner` CLI (`brew install scalexy/tap/planner`) that
 uploads plans through wrangler. Source repo: **`ScaleXY/planner`**.
 
 | Doc | Contents |
@@ -12,6 +12,7 @@ uploads plans through wrangler. Source repo: **`ScaleXY/planner`**.
 | [03-cli.md](03-cli.md) | CLI interface, config, account resolution, wrangler invocation |
 | [04-release-brew.md](04-release-brew.md) | Formula in `ScaleXY/homebrew-tap`, release workflow |
 | [05-migration.md](05-migration.md) | Moving the existing root object into the new layout |
+| [06-index-generation.md](06-index-generation.md) | **Current Worker design:** index pages generated from R2 events |
 
 ## Object key (summary)
 
@@ -29,7 +30,7 @@ seconds, so it doesn't depend on any time zone.
 |---|---|---|
 | — | Timestamp | Unix epoch **seconds** (10 digits) |
 | Q1 | `pri` meaning | Unlisted: never in listings, but viewable by exact URL |
-| Q2 | Hostname | `plans.athul.dev` as a **Worker Custom Domain** (not a route). The Worker serves both index pages and files (see 02) |
+| Q2 | Hostname | `plans.athul.dev` is the bucket's **R2 custom domain**. The Worker builds index pages into the bucket from R2 events (see 06) |
 | Q3 | Repo / tap | `ScaleXY/planner` (public; the user will create it) + the existing public `ScaleXY/homebrew-tap` |
 | Q4 | Day boundary | System local time for the date folder |
 | Q5 | Existing root object | Move it into the new layout, with no redirect from the old URL (see 05) |
@@ -37,7 +38,7 @@ seconds, so it doesn't depend on any time zone.
 ## Build order
 
 1. `git init` (the user creates `ScaleXY/planner`, public). Set up the pnpm workspace skeleton, plus `packages/core` and its tests
-2. Worker: index pages, file serving, and tests. Deploy as the Custom Domain `plans.athul.dev` ✅ deployed 2026-10-26
+2. Worker: index pages generated from R2 events (06) ✅ live 2026-10-26
 3. Migration of the existing object (05) ✅ done 2026-10-26
 4. CLI: config, account resolution, upload, and tests, then a manual e2e on plans.athul.dev
 5. Release: bundle, formula in `ScaleXY/homebrew-tap`, release workflow, and `brew install` on a clean user

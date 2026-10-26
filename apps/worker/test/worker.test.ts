@@ -1,143 +1,106 @@
-import { env } from "cloudflare:test";
-import { beforeAll, describe, expect, it } from "vitest";
-import worker from "../src/index";
+import { createExecutionContext, createMessageBatch, env, getQueueResult } from "cloudflare:test";
+import { beforeEach, describe, expect, it } from "vitest";
+import worker, { type QueueMessage } from "../src/index";
 
 const HTML = { httpMetadata: { contentType: "text/html; charset=utf-8" } };
 
-async function get(path: string, init?: RequestInit) {
-	const request = new Request(`https://plans.athul.dev${path}`, init) as Request<unknown, IncomingRequestCfProperties>;
-	return worker.fetch(request, env);
+async function send(...bodies: QueueMessage[]) {
+	const batch = createMessageBatch<QueueMessage>(
+		"planner-r2-events",
+		bodies.map((body, i) => ({ id: String(i), timestamp: new Date(), attempts: 1, body })),
+	);
+	await worker.queue(batch, env);
+	return getQueueResult(batch, createExecutionContext());
 }
 
-beforeAll(async () => {
-	const keys = [
-		"2025/12/31/1767180000-year-end-pub",
-		"2026/09/01/1788200000-september-pub",
-		"2026/10/25/1792951187-headroom-crazy-ideas-pub",
-		"2026/10/26/1792990800-weekly-review-pub",
-		"2026/10/26/1793000000-later-plan-pub",
-		"2026/10/26/1792995000-secret-plan-pri",
-		"2026/10/27/1793080000-only-private-pri",
-		"2026/10/26/not-in-the-scheme",
-		"2026/xx/01/1792990800-bad-month-pub",
-		"headroom-crazy-ideas-20261025T175947Z",
-		"2026/10/28/1793160000-tomorrow-pub",
-	];
-	await Promise.all(keys.map((k) => env.PLANS.put(k, `<p>${k}</p>`, HTML)));
+const put = (key: string) => ({ action: "PutObject", bucket: "plans", object: { key }, eventTime: "" });
+const del = (key: string) => ({ action: "DeleteObject", bucket: "plans", object: { key }, eventTime: "" });
+
+async function upload(key: string) {
+	await env.PLANS.put(key, `<p>${key}</p>`, HTML);
+	return put(key);
+}
+
+async function page(key: string) {
+	const object = await env.PLANS.get(key);
+	return object && { html: await object.text(), contentType: object.httpMetadata?.contentType, cache: object.httpMetadata?.cacheControl };
+}
+
+async function keys() {
+	return (await env.PLANS.list()).objects.map((o) => o.key).sort();
+}
+
+beforeEach(async () => {
+	for (let page = await env.PLANS.list(); page.objects.length; page = await env.PLANS.list()) {
+		await env.PLANS.delete(page.objects.map((o) => o.key));
+	}
 });
 
 describe("index pages", () => {
-	it("lists years, newest first, ignoring keys outside the scheme", async () => {
-		const res = await get("/");
-		expect(res.status).toBe(200);
-		expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
-		const html = await res.text();
-		expect(html).toMatch(/href="\/2026">2026<.*href="\/2025">2025</s);
-		expect(html).not.toContain("headroom-crazy-ideas-20261025T175947Z");
+	it("writes year, month and day pages as HTML objects", async () => {
+		const result = await send(await upload("2026/10/26/1792990800-weekly-review-pub"));
+		expect(result.ackAll).toBe(true);
+		expect(await keys()).toEqual(["2026", "2026/10", "2026/10/26", "2026/10/26/1792990800-weekly-review-pub"]);
+
+		const day = await page("2026/10/26");
+		expect(day).toMatchObject({ contentType: "text/html; charset=utf-8", cache: "public, max-age=60" });
+		expect(day!.html).toContain(`<title>26 October 2026</title>`);
+		expect(day!.html).toContain(`<nav><a href="/2026">2026</a> › <a href="/2026/10">October</a></nav>`);
+		expect(day!.html).toContain(`<a href="/2026/10/26/1792990800-weekly-review-pub">Weekly Review</a><time datetime="2026-10-26T05:00:00.000Z">05:00 UTC</time>`);
+		expect((await page("2026/10"))!.html).toContain(`<a href="/2026/10/26">26 October</a>`);
+		expect((await page("2026"))!.html).toContain(`<a href="/2026/10">October</a>`);
 	});
 
-	it("lists months with names", async () => {
-		const html = await (await get("/2026")).text();
-		expect(html).toMatch(/href="\/2026\/10">October<.*href="\/2026\/09">September</s);
-		expect(html).not.toContain("xx");
+	it("lists newest first and only public plans", async () => {
+		await upload("2026/10/26/1792990800-weekly-review-pub");
+		await upload("2026/10/26/1792995000-secret-plan-pri");
+		await upload("2026/10/25/1792951187-headroom-crazy-ideas-pub");
+		await upload("2026/09/01/1788200000-september-pub");
+		await send(await upload("2026/10/26/1793000000-later-plan-pub"), put("2026/09/01/1788200000-september-pub"));
+
+		const day = (await page("2026/10/26"))!.html;
+		expect(day).toMatch(/Later Plan<.*Weekly Review</s);
+		expect(day).not.toContain("secret");
+		expect((await page("2026/10"))!.html).toMatch(/2026\/10\/26.*2026\/10\/25/s);
+		expect((await page("2026"))!.html).toMatch(/October<.*September</s);
+		expect(await page("2026/09")).not.toBeNull();
 	});
 
-	it("lists days, including days with only private plans", async () => {
-		const html = await (await get("/2026/10")).text();
-		expect(html).toMatch(/\/2026\/10\/28.*\/2026\/10\/27.*\/2026\/10\/26.*\/2026\/10\/25/s);
-		expect(html).toContain(`<nav><a href="/">Plans</a> › <a href="/2026">2026</a></nav>`);
+	it("gives days with only private plans no page", async () => {
+		await upload("2026/10/27/1793080000-only-private-pri");
+		await send(await upload("2026/10/26/1792990800-weekly-review-pub"), put("2026/10/27/1793080000-only-private-pri"));
+		expect(await page("2026/10/27")).toBeNull();
+		expect((await page("2026/10"))!.html).not.toContain("27 October");
 	});
 
-	it("lists only public plans for a day, newest first, with times", async () => {
-		const html = await (await get("/2026/10/26")).text();
-		expect(html).toMatch(/1793000000-later-plan-pub">Later Plan<.*1792990800-weekly-review-pub">Weekly Review</s);
-		expect(html).toContain(`<time datetime="2026-10-26T05:00:00.000Z">05:00 UTC</time>`);
-		expect(html).not.toContain("secret-plan");
-		expect(html).not.toContain("not-in-the-scheme");
+	it("updates and removes pages when plans are deleted", async () => {
+		await upload("2026/10/26/1792990800-weekly-review-pub");
+		await send(await upload("2025/12/31/1767180000-year-end-pub"), put("2026/10/26/1792990800-weekly-review-pub"));
+
+		await env.PLANS.delete("2026/10/26/1792990800-weekly-review-pub");
+		await send(del("2026/10/26/1792990800-weekly-review-pub"));
+		expect(await keys()).toEqual(["2025", "2025/12", "2025/12/31", "2025/12/31/1767180000-year-end-pub"]);
 	});
 
-	it("shows an empty state for a day with only private plans", async () => {
-		const res = await get("/2026/10/27");
-		expect(res.status).toBe(200);
-		expect(await res.text()).toContain("No public plans.");
+	it("escapes slugs and ignores keys outside the scheme", async () => {
+		await send(await upload("2026/10/26/1792990800-a-b-pub"), put("2026/10/26/not-a-plan"), put("2026/10/26"), put("readme-pub"));
+		expect(await keys()).toEqual(["2026", "2026/10", "2026/10/26", "2026/10/26/1792990800-a-b-pub"]);
 	});
 
-	it("404s for invalid or empty index paths", async () => {
-		for (const path of ["/2026/13", "/2026/10/32", "/26", "/2031", "/2026/11", "/2026/10/29"]) {
-			expect((await get(path)).status, path).toBe(404);
-		}
-	});
-
-	it("redirects trailing slashes", async () => {
-		const res = await get("/2026/10/");
-		expect(res.status).toBe(301);
-		expect(res.headers.get("Location")).toBe("https://plans.athul.dev/2026/10");
-	});
-
-	it("rejects other methods", async () => {
-		expect((await get("/2026", { method: "POST" })).status).toBe(405);
-	});
-
-	it("answers HEAD without a body", async () => {
-		const res = await get("/2026", { method: "HEAD" });
-		expect(res.status).toBe(200);
-		expect(await res.text()).toBe("");
-	});
-
-	it("pages through more than 1000 objects in a day", async () => {
-		await Promise.all(
-			Array.from({ length: 1005 }, (_, i) => env.PLANS.put(`2024/01/01/${1704067200 + i}-bulk-${i}-pub`, "x", HTML)),
-		);
-		const html = await (await get("/2024/01/01")).text();
+	it("pages through more than 1000 plans", async () => {
+		await Promise.all(Array.from({ length: 1005 }, (_, i) => env.PLANS.put(`2024/01/01/${1704067200 + i}-bulk-${i}-pub`, "x", HTML)));
+		await send(put("2024/01/01/1704067200-bulk-0-pub"));
+		const html = (await page("2024/01/01"))!.html;
 		expect(html.match(/<li>/g)).toHaveLength(1005);
 		expect(html.indexOf("Bulk 1004")).toBeLessThan(html.indexOf("Bulk 0<"));
 	});
-});
 
-describe("files", () => {
-	const path = "/2026/10/26/1792990800-weekly-review-pub";
-
-	it("serves the object with its content type, ETag and cache headers", async () => {
-		const res = await get(path);
-		expect(res.status).toBe(200);
-		expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
-		expect(res.headers.get("ETag")).toMatch(/^"/);
-		expect(res.headers.get("Cache-Control")).toBe("public, max-age=300");
-		expect(res.headers.has("X-Robots-Tag")).toBe(false);
-		expect(await res.text()).toBe("<p>2026/10/26/1792990800-weekly-review-pub</p>");
-	});
-
-	it("serves private plans by URL, marked noindex", async () => {
-		const res = await get("/2026/10/26/1792995000-secret-plan-pri");
-		expect(res.status).toBe(200);
-		expect(res.headers.get("X-Robots-Tag")).toBe("noindex");
-	});
-
-	it("returns 304 for a matching If-None-Match", async () => {
-		const etag = (await get(path)).headers.get("ETag")!;
-		expect((await get(path, { headers: { "If-None-Match": etag } })).status).toBe(304);
-	});
-
-	it("supports ranges", async () => {
-		const res = await get(path, { headers: { Range: "bytes=0-2" } });
-		expect(res.status).toBe(206);
-		expect(res.headers.get("Content-Range")).toMatch(/^bytes 0-2\/\d+$/);
-		expect(await res.text()).toBe("<p>");
-	});
-
-	it("answers HEAD without a body", async () => {
-		const res = await get(path, { method: "HEAD" });
-		expect(res.status).toBe(200);
-		expect(await res.text()).toBe("");
-	});
-
-	it("404s for missing objects and junk paths", async () => {
-		for (const p of ["/2026/10/26/1792990801-missing-pub", "/favicon.ico", "/%E0%A4%A"]) {
-			expect((await get(p)).status, p).toBe(404);
-		}
-	});
-
-	it("rejects other methods", async () => {
-		expect((await get(path, { method: "PUT", body: "x" })).status).toBe(405);
+	it("rebuilds everything on request, including stale pages", async () => {
+		await upload("2026/10/26/1792990800-weekly-review-pub");
+		await env.PLANS.put("2023/05/05", "stale", HTML);
+		await env.PLANS.put("2023/05", "stale", HTML);
+		await env.PLANS.put("2023", "stale", HTML);
+		await send({ rebuild: "all" });
+		expect(await keys()).toEqual(["2026", "2026/10", "2026/10/26", "2026/10/26/1792990800-weekly-review-pub"]);
 	});
 });
