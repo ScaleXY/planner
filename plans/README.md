@@ -38,6 +38,6 @@ seconds, so it doesn't depend on any time zone.
 
 1. `git init` (the user creates `ScaleXY/planner`, public). Set up the pnpm workspace skeleton, plus `packages/core` and its tests
 2. Worker: index pages, file serving, and tests. Deploy as the Custom Domain `plans.athul.dev` ✅ deployed 2026-10-26
-3. Migration of the existing object (05)
+3. Migration of the existing object (05) ✅ done 2026-10-26
 4. CLI: config, account resolution, upload, and tests, then a manual e2e on plans.athul.dev
 5. Release: bundle, formula in `ScaleXY/homebrew-tap`, release workflow, and `brew install` on a clean user
