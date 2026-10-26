@@ -1,0 +1,17 @@
+{
+  "name": "@planner/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "planner": "dist/planner.mjs" },
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/planner.mjs --banner:js='#!/usr/bin/env node'",
+    "test": "TZ=Asia/Kolkata vitest run",
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "@planner/core": "workspace:*",
+    "esbuild": "^0.28.2",
+    "vitest": "^5.0.0"
+  }
+}

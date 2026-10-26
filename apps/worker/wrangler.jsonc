@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "planner",
+  "main": "src/index.ts",
+  "account_id": "98f0ecdd86a00f1677266b31bd313769",
+  "compatibility_date": "2026-10-25",
+  "workers_dev": false,
+  "preview_urls": false,
+  // Route wildcards only work at the end of a path, so this catches every request: the Worker renders
+  // the index pages and passes everything else through to the R2 custom domain on the same hostname.
+  "routes": [{ "pattern": "plans.athul.dev/*", "zone_name": "athul.dev" }],
+  "r2_buckets": [{ "binding": "PLANS", "bucket_name": "plans" }],
+  "vars": {
+    // Set to "true" to serve plan files from the binding instead of passing them through to R2.
+    "SERVE_FROM_BINDING": "false"
+  }
+}
