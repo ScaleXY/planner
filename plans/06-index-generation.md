@@ -2,15 +2,16 @@
 
 **Status: live since 2026-10-26.** This replaces the request-serving Worker in 02.
 
-`plans.athul.dev` is the bucket's **R2 custom domain** again, so R2 serves everything, plan files and
-index pages alike. The Worker has no HTTP trigger. It consumes R2 event notifications and writes the index
-pages into the bucket as ordinary objects (`text/html; charset=utf-8`, `Cache-Control: public, max-age=60`):
+`plans.athul.dev` is the bucket's **R2 custom domain** again, so R2 serves the plan files and the index
+pages. The Worker consumes R2 event notifications and writes the index pages into the bucket as ordinary
+objects (`text/html; charset=utf-8`, `Cache-Control: public, max-age=60`). The only request it handles is `/`:
 
 | Object key | URL | Lists |
 |---|---|---|
 | `2026` | `/2026` | Months with at least one public plan |
 | `2026/10` | `/2026/10` | Days with at least one public plan |
 | `2026/10/26` | `/2026/10/26` | Public plans of that day, newest first |
+| *(none)* | `/` | Years: **rendered by the Worker per request** from the root-level `YYYY` objects |
 
 ## Pipeline
 
@@ -38,8 +39,14 @@ planner upload ─▶ R2 put 2026/10/26/<ts>-<slug>-pub
 
 ## Limits
 
-- **No root page.** An R2 custom domain can't map `/` to an object (there is no empty key and no index
-  document), so `https://plans.athul.dev/` stays 404. Entry points are `/<year>`.
+- **`/` comes from the Worker.** An R2 custom domain can't map `/` to an object (there is no empty key
+  and no index document), so the exact-path route `plans.athul.dev/` (no wildcard) sends only `/` to the
+  Worker. It lists root-level objects with `delimiter: "/"` and keeps the `YYYY` keys, which exist only
+  for years with public plans, in one list call. A zone URL-rewrite rule (`/` → `/index.html`) would avoid
+  the Worker, but wrangler's OAuth login has only `zone:read`.
+- **`/?anything` is 404.** Routes match the full URL including the query string, and a pattern can't
+  contain one. Only `/` with no query string reaches the Worker. Matching query strings would need
+  `plans.athul.dev/*`, which would put the Worker in front of every request.
 - **No trailing slash.** `/2026/10/` looks up the key `2026/10/`, which doesn't exist, so it 404s.
   Generated links never use a trailing slash.
 - **Updates take a few seconds** (about 4 s measured for an upload, about 7 s for a delete).

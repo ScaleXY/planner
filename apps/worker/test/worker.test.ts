@@ -45,7 +45,7 @@ describe("index pages", () => {
 		const day = await page("2026/10/26");
 		expect(day).toMatchObject({ contentType: "text/html; charset=utf-8", cache: "public, max-age=60" });
 		expect(day!.html).toContain(`<title>26 October 2026</title>`);
-		expect(day!.html).toContain(`<nav><a href="/2026">2026</a> › <a href="/2026/10">October</a></nav>`);
+		expect(day!.html).toContain(`<nav><a href="/">Plans</a> › <a href="/2026">2026</a> › <a href="/2026/10">October</a></nav>`);
 		expect(day!.html).toContain(`<a href="/2026/10/26/1792990800-weekly-review-pub">Weekly Review</a><time datetime="2026-10-26T05:00:00.000Z">05:00 UTC</time>`);
 		expect((await page("2026/10"))!.html).toContain(`<a href="/2026/10/26">26 October</a>`);
 		expect((await page("2026"))!.html).toContain(`<a href="/2026/10">October</a>`);
@@ -102,5 +102,36 @@ describe("index pages", () => {
 		await env.PLANS.put("2023", "stale", HTML);
 		await send({ rebuild: "all" });
 		expect(await keys()).toEqual(["2026", "2026/10", "2026/10/26", "2026/10/26/1792990800-weekly-review-pub"]);
+	});
+});
+
+describe("root page", () => {
+	const get = (path: string, init?: RequestInit) =>
+		worker.fetch(new Request(`https://plans.athul.dev${path}`, init) as Request<unknown, IncomingRequestCfProperties>, env);
+
+	it("lists the years that have index pages, newest first", async () => {
+		await send(await upload("2026/10/26/1792990800-weekly-review-pub"), await upload("2025/12/31/1767180000-year-end-pub"));
+		await upload("2024/01/01/1704067200-private-only-pri");
+		const res = await get("/");
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+		const html = await res.text();
+		expect(html).toMatch(/<title>Plans<\/title>.*href="\/2026">2026<.*href="\/2025">2025</s);
+		expect(html).not.toContain("2024");
+		expect(html).not.toContain("<nav>");
+	});
+
+	it("links generated pages back to the root", async () => {
+		await send(await upload("2026/10/26/1792990800-weekly-review-pub"));
+		expect((await page("2026"))!.html).toContain(`<nav><a href="/">Plans</a></nav>`);
+		expect((await page("2026/10/26"))!.html).toContain(`<nav><a href="/">Plans</a> › <a href="/2026">2026</a> › <a href="/2026/10">October</a></nav>`);
+	});
+
+	it("answers HEAD without a body, rejects other methods and paths", async () => {
+		const head = await get("/", { method: "HEAD" });
+		expect(head.status).toBe(200);
+		expect(await head.text()).toBe("");
+		expect((await get("/", { method: "POST" })).status).toBe(405);
+		expect((await get("/2026")).status).toBe(404);
 	});
 });

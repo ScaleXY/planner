@@ -1,4 +1,4 @@
-import { addAffected, parsePlanKey, rebuild, rebuildAll, type Affected } from "./indexes";
+import { addAffected, parsePlanKey, rebuild, rebuildAll, rootPage, type Affected } from "./indexes";
 
 /** R2 event notification, plus `{ "rebuild": "all" }` sent by hand to regenerate every page. */
 export type QueueMessage =
@@ -6,6 +6,18 @@ export type QueueMessage =
 	| { rebuild: "all" };
 
 export default {
+	// Only `/` is routed here (exact-path route, see wrangler.jsonc). Everything else is served by R2.
+	async fetch(request, env): Promise<Response> {
+		if (new URL(request.url).pathname !== "/") return new Response("Not Found", { status: 404 });
+		if (request.method !== "GET" && request.method !== "HEAD") {
+			return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+		}
+		const html = await rootPage(env.PLANS);
+		return new Response(request.method === "HEAD" ? null : html, {
+			headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=60" },
+		});
+	},
+
 	// Events arrive for `-pub` objects only (see the notification rules in plans/06). Pages are rebuilt
 	// from a fresh listing, so a batch only needs to know which pages it touched, not what changed.
 	async queue(batch, env): Promise<void> {

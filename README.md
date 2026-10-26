@@ -4,7 +4,8 @@ HTML plans on Cloudflare R2, browsable at **https://plans.athul.dev**.
 
 - `apps/worker`: queue consumer for the bucket's R2 events. When a public plan is added or removed, it
   regenerates the index pages `/<year>`, `/<year>/<month>` and `/<year>/<month>/<day>` as HTML objects in
-  the bucket. `plans.athul.dev` is the bucket's R2 custom domain, so R2 serves everything
+  the bucket. `plans.athul.dev` is the bucket's R2 custom domain, so R2 serves those pages and the plans.
+  The Worker itself answers only `/` (the list of years), through an exact-path route
   ([details](plans/06-index-generation.md)).
 - `apps/cli`: the `planner` CLI, which uploads a plan through wrangler.
 - `packages/core`: the object key format shared by both.

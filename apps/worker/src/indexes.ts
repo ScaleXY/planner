@@ -1,6 +1,8 @@
 import { DAY_RE, MONTH_RE, YEAR_RE, parseFileName, type ParsedFile } from "@planner/core";
 import { monthName, renderPage, slugTitle, type Crumb } from "./html";
 
+export const SITE = "Plans";
+const ROOT: Crumb = { label: SITE, href: "/" };
 const INDEX_METADATA: R2HTTPMetadata = { contentType: "text/html; charset=utf-8", cacheControl: "public, max-age=60" };
 
 export interface PlanKey extends ParsedFile {
@@ -90,23 +92,39 @@ export async function rebuildAll(bucket: R2Bucket): Promise<void> {
 	await rebuild(bucket, affected);
 }
 
+/**
+ * The root page, rendered per request because R2 can't serve `/`: an object key can't be empty.
+ * Years come from the `YYYY` index objects, which exist only for years with public plans.
+ */
+export async function rootPage(bucket: R2Bucket): Promise<string> {
+	const years: string[] = [];
+	let cursor: string | undefined;
+	do {
+		const page = await bucket.list({ delimiter: "/", cursor });
+		for (const { key } of page.objects) if (YEAR_RE.test(key)) years.push(key);
+		cursor = page.truncated ? page.cursor : undefined;
+	} while (cursor);
+	return renderPage(SITE, [], newestFirst(years).map((y) => ({ label: y, href: `/${y}` })));
+}
+
 const newestFirst = (values: Iterable<string>) => [...new Set(values)].sort().reverse();
 
 function yearPage(plans: PlanKey[]): string {
 	const { year } = plans[0]!;
 	const items = newestFirst(plans.map((p) => p.month)).map((m) => ({ label: monthName(m), href: `/${year}/${m}` }));
-	return renderPage(year, [], items);
+	return renderPage(year, [ROOT], items);
 }
 
 function monthPage(plans: PlanKey[]): string {
 	const { year, month } = plans[0]!;
 	const items = newestFirst(plans.map((p) => p.day)).map((d) => ({ label: `${Number(d)} ${monthName(month)}`, href: `/${year}/${month}/${d}` }));
-	return renderPage(`${monthName(month)} ${year}`, [{ label: year, href: `/${year}` }], items);
+	return renderPage(`${monthName(month)} ${year}`, [ROOT, { label: year, href: `/${year}` }], items);
 }
 
 function dayPage(plans: PlanKey[]): string {
 	const { year, month, day } = plans[0]!;
 	const crumbs: Crumb[] = [
+		ROOT,
 		{ label: year, href: `/${year}` },
 		{ label: monthName(month), href: `/${year}/${month}` },
 	];
