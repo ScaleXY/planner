@@ -1,7 +1,7 @@
 # Planner — plans
 
-Monorepo with a Cloudflare Worker that renders directory listings for HTML "plans" stored in R2 and
-served at **https://plans.athul.dev**, plus a `planner` CLI (`brew install scalexy/tap/planner`) that
+Monorepo with a Cloudflare Worker that serves HTML "plans" stored in R2, with directory listings, at
+**https://plans.athul.dev**, plus a `planner` CLI (`brew install scalexy/tap/planner`) that
 uploads plans through wrangler. Source repo: **`ScaleXY/planner`**.
 
 | Doc | Contents |
@@ -29,7 +29,7 @@ seconds, so it doesn't depend on any time zone.
 |---|---|---|
 | — | Timestamp | Unix epoch **seconds** (10 digits) |
 | Q1 | `pri` meaning | Unlisted: never in listings, but viewable by exact URL |
-| Q2 | Hostname | `plans.athul.dev`. A wildcard Worker route sends index paths to the Worker and everything else to R2 (see 02) |
+| Q2 | Hostname | `plans.athul.dev` as a **Worker Custom Domain** (not a route). The Worker serves both index pages and files (see 02) |
 | Q3 | Repo / tap | `ScaleXY/planner` (public; the user will create it) + the existing public `ScaleXY/homebrew-tap` |
 | Q4 | Day boundary | System local time for the date folder |
 | Q5 | Existing root object | Move it into the new layout, with no redirect from the old URL (see 05) |
@@ -37,7 +37,7 @@ seconds, so it doesn't depend on any time zone.
 ## Build order
 
 1. `git init` (the user creates `ScaleXY/planner`, public). Set up the pnpm workspace skeleton, plus `packages/core` and its tests
-2. Worker: index routes, listing, and tests. Deploy with route `plans.athul.dev/*` and verify the passthrough to R2
+2. Worker: index pages, file serving, and tests. Deploy as the Custom Domain `plans.athul.dev` ✅ deployed 2026-10-26
 3. Migration of the existing object (05)
 4. CLI: config, account resolution, upload, and tests, then a manual e2e on plans.athul.dev
 5. Release: bundle, formula in `ScaleXY/homebrew-tap`, release workflow, and `brew install` on a clean user

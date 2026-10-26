@@ -27,6 +27,8 @@ All checks were run on 2026-10-26 against the demo account `98f0ecdd86a00f167726
 
 ## Worker routes vs. index paths
 
+> **Superseded:** the Worker was deployed as a Custom Domain instead (see the update at the end of 02).
+
 Workers route patterns only allow a `*` at the **start of the hostname** or the **end of the path**.
 Infix wildcards (`/*/`) are rejected, and the most specific pattern wins. Index paths (`/2026/10/26`)
 and file paths (`/2026/10/26/<file>`) share prefixes, so no set of wildcard patterns can select

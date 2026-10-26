@@ -89,3 +89,18 @@ curl -s https://plans.athul.dev/            # years
 curl -s https://plans.athul.dev/2026/10     # days
 curl -sI https://plans.athul.dev/2026/10/25/1792951187-headroom-crazy-ideas-pub   # R2 via passthrough
 ```
+
+## Update 2026-10-26: Custom Domain instead of a route
+
+The Worker is now attached as the **Custom Domain** `plans.athul.dev`
+(`"routes": [{ "pattern": "plans.athul.dev", "custom_domain": true }]`), not a `plans.athul.dev/*` route.
+This replaces the routing and passthrough sections above:
+
+- A Worker on a Custom Domain *is* the origin, so it can't forward to R2 with `fetch(request)`. It always
+  serves files from the `PLANS` binding (ETag/304, ranges, HEAD, `Cache-Control: public, max-age=300`,
+  `X-Robots-Tag: noindex` for `pri`). The `SERVE_FROM_BINDING` switch is gone.
+- Custom Domains can't share a hostname with existing DNS records, so the bucket's R2 custom domain on
+  `plans.athul.dev` was removed (`wrangler r2 bucket domain remove plans --domain plans.athul.dev`). R2 no
+  longer serves the bucket publicly by itself. Every request goes through the Worker. The bucket's `r2.dev`
+  URL was already disabled.
+- Any key is served at `/<key>`, so the un-migrated root object stays reachable at its old URL until 05 runs.

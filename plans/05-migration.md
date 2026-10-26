@@ -20,7 +20,7 @@ export CLOUDFLARE_ACCOUNT_ID=98f0ecdd86a00f1677266b31bd313769
 wrangler r2 object get plans/headroom-crazy-ideas-20261025T175947Z --remote --file /tmp/migrate.html
 wrangler r2 object put plans/2026/10/25/1792951187-headroom-crazy-ideas-pub --remote \
   --file /tmp/migrate.html --content-type "text/html; charset=utf-8"
-curl -sI https://plans.athul.dev/2026/10/25/1792951187-headroom-crazy-ideas-pub   # 200, text/html
+curl -sI https://plans.athul.dev/2026/10/25/1792951187-headroom-crazy-ideas-pub   # 200, text/html (served by the Worker)
 wrangler r2 object delete plans/headroom-crazy-ideas-20261025T175947Z --remote
 ```
 

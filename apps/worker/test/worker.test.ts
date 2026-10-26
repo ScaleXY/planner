@@ -1,12 +1,12 @@
 import { env } from "cloudflare:test";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import worker from "../src/index";
 
 const HTML = { httpMetadata: { contentType: "text/html; charset=utf-8" } };
 
-async function get(path: string, init?: RequestInit, overrides: Partial<Env> = {}) {
+async function get(path: string, init?: RequestInit) {
 	const request = new Request(`https://plans.athul.dev${path}`, init) as Request<unknown, IncomingRequestCfProperties>;
-	return worker.fetch(request, { ...env, ...overrides } as Env);
+	return worker.fetch(request, env);
 }
 
 beforeAll(async () => {
@@ -25,8 +25,6 @@ beforeAll(async () => {
 	];
 	await Promise.all(keys.map((k) => env.PLANS.put(k, `<p>${k}</p>`, HTML)));
 });
-
-afterEach(() => vi.restoreAllMocks());
 
 describe("index pages", () => {
 	it("lists years, newest first, ignoring keys outside the scheme", async () => {
@@ -97,57 +95,49 @@ describe("index pages", () => {
 });
 
 describe("files", () => {
-	it("passes file requests through to the origin", async () => {
-		const origin = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("from r2"));
-		const res = await get("/2026/10/26/1792990800-weekly-review-pub");
-		expect(await res.text()).toBe("from r2");
-		expect(origin).toHaveBeenCalledOnce();
-		expect((origin.mock.calls[0]![0] as Request).url).toBe("https://plans.athul.dev/2026/10/26/1792990800-weekly-review-pub");
+	const path = "/2026/10/26/1792990800-weekly-review-pub";
+
+	it("serves the object with its content type, ETag and cache headers", async () => {
+		const res = await get(path);
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+		expect(res.headers.get("ETag")).toMatch(/^"/);
+		expect(res.headers.get("Cache-Control")).toBe("public, max-age=300");
 		expect(res.headers.has("X-Robots-Tag")).toBe(false);
+		expect(await res.text()).toBe("<p>2026/10/26/1792990800-weekly-review-pub</p>");
 	});
 
-	it("passes unknown paths through too", async () => {
-		const origin = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("nope", { status: 404 }));
-		expect((await get("/favicon.ico")).status).toBe(404);
-		expect(origin).toHaveBeenCalledOnce();
-	});
-
-	it("marks private plans noindex", async () => {
-		vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("secret"));
+	it("serves private plans by URL, marked noindex", async () => {
 		const res = await get("/2026/10/26/1792995000-secret-plan-pri");
+		expect(res.status).toBe(200);
 		expect(res.headers.get("X-Robots-Tag")).toBe("noindex");
-		expect(await res.text()).toBe("secret");
 	});
 
-	describe("served from the binding", () => {
-		const fromBinding = { SERVE_FROM_BINDING: "true" };
-		const path = "/2026/10/26/1792990800-weekly-review-pub";
+	it("returns 304 for a matching If-None-Match", async () => {
+		const etag = (await get(path)).headers.get("ETag")!;
+		expect((await get(path, { headers: { "If-None-Match": etag } })).status).toBe(304);
+	});
 
-		it("serves the object with its content type and ETag", async () => {
-			const origin = vi.spyOn(globalThis, "fetch");
-			const res = await get(path, undefined, fromBinding);
-			expect(res.status).toBe(200);
-			expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
-			expect(res.headers.get("ETag")).toMatch(/^"/);
-			expect(await res.text()).toBe("<p>2026/10/26/1792990800-weekly-review-pub</p>");
-			expect(origin).not.toHaveBeenCalled();
-		});
+	it("supports ranges", async () => {
+		const res = await get(path, { headers: { Range: "bytes=0-2" } });
+		expect(res.status).toBe(206);
+		expect(res.headers.get("Content-Range")).toMatch(/^bytes 0-2\/\d+$/);
+		expect(await res.text()).toBe("<p>");
+	});
 
-		it("returns 304 for a matching If-None-Match", async () => {
-			const etag = (await get(path, undefined, fromBinding)).headers.get("ETag")!;
-			const res = await get(path, { headers: { "If-None-Match": etag } }, fromBinding);
-			expect(res.status).toBe(304);
-		});
+	it("answers HEAD without a body", async () => {
+		const res = await get(path, { method: "HEAD" });
+		expect(res.status).toBe(200);
+		expect(await res.text()).toBe("");
+	});
 
-		it("supports ranges", async () => {
-			const res = await get(path, { headers: { Range: "bytes=0-2" } }, fromBinding);
-			expect(res.status).toBe(206);
-			expect(res.headers.get("Content-Range")).toMatch(/^bytes 0-2\/\d+$/);
-			expect(await res.text()).toBe("<p>");
-		});
+	it("404s for missing objects and junk paths", async () => {
+		for (const p of ["/2026/10/26/1792990801-missing-pub", "/favicon.ico", "/%E0%A4%A"]) {
+			expect((await get(p)).status, p).toBe(404);
+		}
+	});
 
-		it("404s for missing objects", async () => {
-			expect((await get("/2026/10/26/1792990801-missing-pub", undefined, fromBinding)).status).toBe(404);
-		});
+	it("rejects other methods", async () => {
+		expect((await get(path, { method: "PUT", body: "x" })).status).toBe(405);
 	});
 });

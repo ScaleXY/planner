@@ -2,8 +2,8 @@
 
 HTML plans on Cloudflare R2, browsable at **https://plans.athul.dev**.
 
-- `apps/worker`: Worker on `plans.athul.dev/*`. It renders the index pages (`/`, `/<year>`,
-  `/<year>/<month>`, `/<year>/<month>/<day>`) and passes plan files through to the bucket's R2 custom domain.
+- `apps/worker`: Worker on the Custom Domain `plans.athul.dev`. It renders the index pages (`/`, `/<year>`,
+  `/<year>/<month>`, `/<year>/<month>/<day>`) and serves plan files from the bucket.
 - `apps/cli`: the `planner` CLI, which uploads a plan through wrangler.
 - `packages/core`: the object key format shared by both.
 

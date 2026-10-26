@@ -5,6 +5,7 @@ import { listDay, listFolders } from "./listing";
 const SITE = "Plans";
 const SEGMENT_RE = [YEAR_RE, MONTH_RE, DAY_RE];
 const LISTING_CACHE = "public, max-age=60";
+const FILE_CACHE = "public, max-age=300";
 
 export default {
 	async fetch(request, env): Promise<Response> {
@@ -28,13 +29,7 @@ export default {
 			});
 		}
 
-		const key = decodeURIComponent(url.pathname.slice(1));
-		const isPrivate = parseFileName(key.split("/").pop() ?? "")?.mode === "pri";
-		const response = env.SERVE_FROM_BINDING === "true" ? await serveFromBucket(env.PLANS, key, request) : await fetch(request);
-		if (!isPrivate) return response;
-		const unlisted = new Response(response.body, response);
-		unlisted.headers.set("X-Robots-Tag", "noindex");
-		return unlisted;
+		return serveFile(env.PLANS, url.pathname, request);
 	},
 } satisfies ExportedHandler<Env>;
 
@@ -60,11 +55,18 @@ async function renderIndex(bucket: R2Bucket, segments: string[]): Promise<string
 	return renderPage(title, crumbs.slice(0, -1), items, "Nothing uploaded yet.");
 }
 
-/** Fallback for when passing file requests through to the R2 custom domain doesn't work. */
-async function serveFromBucket(bucket: R2Bucket, key: string, request: Request): Promise<Response> {
+/** Serves an object straight from the bucket: the Worker is the origin for plans.athul.dev. */
+async function serveFile(bucket: R2Bucket, pathname: string, request: Request): Promise<Response> {
 	if (request.method !== "GET" && request.method !== "HEAD") {
 		return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
 	}
+	let key: string;
+	try {
+		key = decodeURIComponent(pathname.slice(1));
+	} catch {
+		return notFound();
+	}
+	if (!key) return notFound();
 	const object = await bucket.get(key, { onlyIf: request.headers, range: request.headers });
 	if (!object) return notFound();
 
@@ -72,18 +74,22 @@ async function serveFromBucket(bucket: R2Bucket, key: string, request: Request):
 	object.writeHttpMetadata(headers);
 	headers.set("ETag", object.httpEtag);
 	headers.set("Accept-Ranges", "bytes");
+	headers.set("Cache-Control", FILE_CACHE);
 	if (!headers.has("Content-Type")) headers.set("Content-Type", "text/html; charset=utf-8");
+	// Private plans are reachable by URL but shouldn't end up in search results either.
+	if (parseFileName(key.split("/").pop()!)?.mode === "pri") headers.set("X-Robots-Tag", "noindex");
 
 	if (!("body" in object)) {
 		const conditional = request.headers.has("If-None-Match") || request.headers.has("If-Modified-Since");
 		return new Response(null, { status: conditional ? 304 : 412, headers });
 	}
+	const body = request.method === "HEAD" ? null : object.body;
 	const range = object.range as { offset: number; length: number } | undefined;
 	if (range && request.headers.has("Range")) {
 		headers.set("Content-Range", `bytes ${range.offset}-${range.offset + range.length - 1}/${object.size}`);
-		return new Response(request.method === "HEAD" ? null : object.body, { status: 206, headers });
+		return new Response(body, { status: 206, headers });
 	}
-	return new Response(request.method === "HEAD" ? null : object.body, { headers });
+	return new Response(body, { headers });
 }
 
 function notFound(): Response {
