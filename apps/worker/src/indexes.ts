@@ -2,6 +2,8 @@ import { DAY_RE, MONTH_RE, YEAR_RE, parseFileName, type ParsedFile } from "@plan
 import { monthName, renderPage, slugTitle, type Crumb } from "./html";
 
 export const SITE = "Plans";
+/** The root page. A zone URL-rewrite rule serves it at `/`, since R2 object keys can't be empty. */
+export const ROOT_KEY = "index.html";
 const ROOT: Crumb = { label: SITE, href: "/" };
 const INDEX_METADATA: R2HTTPMetadata = { contentType: "text/html; charset=utf-8", cacheControl: "public, max-age=60" };
 
@@ -49,6 +51,7 @@ export async function listPublicPlans(bucket: R2Bucket, prefix: string): Promise
 /**
  * Rewrites the year, month and day index objects (`YYYY`, `YYYY/MM`, `YYYY/MM/DD`) for the affected
  * pages from the current bucket contents, and deletes pages that no longer have any public plans.
+ * Then rewrites the root page (`index.html`), whose year list depends on those year pages.
  * Only public plans are counted, so a day with only private plans gets no page at all.
  */
 export async function rebuild(bucket: R2Bucket, affected: Affected): Promise<void> {
@@ -69,6 +72,7 @@ export async function rebuild(bucket: R2Bucket, affected: Affected): Promise<voi
 		write(year, plans.length ? yearPage(plans) : null);
 		await Promise.all(writes);
 	}
+	if (affected.size) await bucket.put(ROOT_KEY, await rootPage(bucket), { httpMetadata: INDEX_METADATA });
 }
 
 /** Rebuilds every index page in the bucket, e.g. after changing the templates. */
@@ -92,10 +96,7 @@ export async function rebuildAll(bucket: R2Bucket): Promise<void> {
 	await rebuild(bucket, affected);
 }
 
-/**
- * The root page, rendered per request because R2 can't serve `/`: an object key can't be empty.
- * Years come from the `YYYY` index objects, which exist only for years with public plans.
- */
+/** The root page: years come from the `YYYY` index objects, which exist only for years with public plans. */
 export async function rootPage(bucket: R2Bucket): Promise<string> {
 	const years: string[] = [];
 	let cursor: string | undefined;

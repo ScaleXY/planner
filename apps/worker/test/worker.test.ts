@@ -40,7 +40,7 @@ describe("index pages", () => {
 	it("writes year, month and day pages as HTML objects", async () => {
 		const result = await send(await upload("2026/10/26/1792990800-weekly-review-pub"));
 		expect(result.ackAll).toBe(true);
-		expect(await keys()).toEqual(["2026", "2026/10", "2026/10/26", "2026/10/26/1792990800-weekly-review-pub"]);
+		expect(await keys()).toEqual(["2026", "2026/10", "2026/10/26", "2026/10/26/1792990800-weekly-review-pub", "index.html"]);
 
 		const day = await page("2026/10/26");
 		expect(day).toMatchObject({ contentType: "text/html; charset=utf-8", cache: "public, max-age=60" });
@@ -79,12 +79,13 @@ describe("index pages", () => {
 
 		await env.PLANS.delete("2026/10/26/1792990800-weekly-review-pub");
 		await send(del("2026/10/26/1792990800-weekly-review-pub"));
-		expect(await keys()).toEqual(["2025", "2025/12", "2025/12/31", "2025/12/31/1767180000-year-end-pub"]);
+		expect(await keys()).toEqual(["2025", "2025/12", "2025/12/31", "2025/12/31/1767180000-year-end-pub", "index.html"]);
+		expect((await page("index.html"))!.html).not.toContain("2026");
 	});
 
 	it("escapes slugs and ignores keys outside the scheme", async () => {
 		await send(await upload("2026/10/26/1792990800-a-b-pub"), put("2026/10/26/not-a-plan"), put("2026/10/26"), put("readme-pub"));
-		expect(await keys()).toEqual(["2026", "2026/10", "2026/10/26", "2026/10/26/1792990800-a-b-pub"]);
+		expect(await keys()).toEqual(["2026", "2026/10", "2026/10/26", "2026/10/26/1792990800-a-b-pub", "index.html"]);
 	});
 
 	it("pages through more than 1000 plans", async () => {
@@ -101,13 +102,23 @@ describe("index pages", () => {
 		await env.PLANS.put("2023/05", "stale", HTML);
 		await env.PLANS.put("2023", "stale", HTML);
 		await send({ rebuild: "all" });
-		expect(await keys()).toEqual(["2026", "2026/10", "2026/10/26", "2026/10/26/1792990800-weekly-review-pub"]);
+		expect(await keys()).toEqual(["2026", "2026/10", "2026/10/26", "2026/10/26/1792990800-weekly-review-pub", "index.html"]);
 	});
 });
 
 describe("root page", () => {
 	const get = (path: string, init?: RequestInit) =>
 		worker.fetch(new Request(`https://plans.athul.dev${path}`, init) as Request<unknown, IncomingRequestCfProperties>, env);
+
+	it("writes index.html listing the years with public plans, newest first", async () => {
+		await send(await upload("2026/10/26/1792990800-weekly-review-pub"), await upload("2025/12/31/1767180000-year-end-pub"));
+		await upload("2024/01/01/1704067200-private-only-pri");
+		const root = await page("index.html");
+		expect(root).toMatchObject({ contentType: "text/html; charset=utf-8", cache: "public, max-age=60" });
+		expect(root!.html).toMatch(/<title>Plans<\/title>.*href="\/2026">2026<.*href="\/2025">2025</s);
+		expect(root!.html).not.toContain("2024");
+		expect(root!.html).not.toContain("<nav>");
+	});
 
 	it("lists the years that have index pages, newest first", async () => {
 		await send(await upload("2026/10/26/1792990800-weekly-review-pub"), await upload("2025/12/31/1767180000-year-end-pub"));
